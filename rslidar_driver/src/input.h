@@ -42,7 +42,6 @@
 #include <fcntl.h>
 #include <sys/file.h>
 #include <signal.h>
-#include <sensor_msgs/TimeReference.h>
 
 namespace rslidar_driver
 {
@@ -69,18 +68,10 @@ public:
 
   virtual int getPacket(rslidar_msgs::rslidarPacket* pkt, const double time_offset) = 0;
 
-  int getRpm(void);
-  int getReturnMode(void);
-  bool getUpdateFlag(void);
-  void clearUpdateFlag(void);
-
 protected:
   ros::NodeHandle private_nh_;
   uint16_t port_;
   std::string devip_str_;
-  int cur_rpm_;
-  int return_mode_;
-  bool npkt_update_flag_;
 };
 
 /** @brief Live rslidar input from socket. */
@@ -98,6 +89,8 @@ private:
   int sockfd_;
   in_addr devip_;
 
+  int Ret;
+  int len;
 };
 
 /** @brief rslidar input from PCAP dump file.

@@ -18,7 +18,6 @@
 #include <string>
 #include <ros/ros.h>
 #include <ros/package.h>
-#include <std_msgs/Int32.h>
 #include <diagnostic_updater/diagnostic_updater.h>
 #include <diagnostic_updater/publisher.h>
 #include <dynamic_reconfigure/server.h>
@@ -50,8 +49,6 @@ public:
 private:
   /// Callback for dynamic reconfigure
   void callback(rslidar_driver::rslidarNodeConfig& config, uint32_t level);
-  /// Callback for skip num for time synchronization
-  void skipNumCallback(const std_msgs::Int32::ConstPtr& skip_num);
 
   /// Pointer to dynamic reconfigure service srv_
   boost::shared_ptr<dynamic_reconfigure::Server<rslidar_driver::rslidarNodeConfig> > srv_;
@@ -71,7 +68,6 @@ private:
   boost::shared_ptr<Input> difop_input_;
   ros::Publisher msop_output_;
   ros::Publisher difop_output_;
-  ros::Publisher output_sync_;
   // Converter convtor_;
   /** diagnostics updater */
   diagnostic_updater::Updater diagnostics_;
@@ -79,11 +75,6 @@ private:
   double diag_max_freq_;
   boost::shared_ptr<diagnostic_updater::TopicDiagnostic> diag_topic_;
   boost::shared_ptr<boost::thread> difop_thread_;
-
-  // add for time synchronization
-  bool time_synchronization_;
-  uint32_t skip_num_;
-  ros::Subscriber skip_num_sub_;
 };
 
 }  // namespace rslidar_driver

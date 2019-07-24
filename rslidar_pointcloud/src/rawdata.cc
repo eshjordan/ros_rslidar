@@ -32,80 +32,25 @@ void RawData::loadConfigFile(ros::NodeHandle node, ros::NodeHandle private_nh)
 {
   std::string anglePath, curvesPath, channelPath, curvesRatePath;
   std::string model;
-  std::string resolution_param;
 
   private_nh.param("curves_path", curvesPath, std::string(""));
   private_nh.param("angle_path", anglePath, std::string(""));
   private_nh.param("channel_path", channelPath, std::string(""));
   private_nh.param("curves_rate_path", curvesRatePath, std::string(""));
-  private_nh.param("start_angle", start_angle_, float(0));
-  private_nh.param("end_angle", end_angle_, float(360));
-
-  if (start_angle_ < 0 || start_angle_ > 360 || end_angle_ < 0 || end_angle_ > 360)
-  {
-    start_angle_ = 0;
-    end_angle_ = 360;
-    ROS_INFO_STREAM("start angle and end angle select feature deactivated.");
-  }
-  else
-  {
-    ROS_INFO_STREAM("start angle and end angle select feature activated.");
-  }
-
-  angle_flag_ = true;
-  if (start_angle_ > end_angle_)
-  {
-    angle_flag_ = false;
-    ROS_INFO_STREAM("Start angle is smaller than end angle, not the normal state!");
-  }
-
-  ROS_INFO_STREAM("start_angle: " << start_angle_ << " end_angle: " << end_angle_ << " angle_flag: " << angle_flag_);
-  //std::cout << "start_angle: " << start_angle_ << " end_angle: " << end_angle_ << " angle_flag: " << angle_flag_
-  //          << std::endl;
-  start_angle_ = start_angle_ / 180 * M_PI;
-  end_angle_ = end_angle_ / 180 * M_PI;
-
-  private_nh.param("max_distance", max_distance_, 200.0f);
-  private_nh.param("min_distance", min_distance_, 0.2f);
-
-  ROS_INFO_STREAM("distance threshlod, max: " << max_distance_ << ", min: " << min_distance_);
-
-
-  intensity_mode_ = 1;
-  info_print_flag_ = false;
-  private_nh.param("resolution_type", resolution_param, std::string("0.5cm"));
-  private_nh.param("intensity_mode", intensity_mode_, 1);
-
-  if (resolution_param == "0.5cm")
-  {
-    dis_resolution_mode_ = 0;
-  }
-  else
-  {
-    dis_resolution_mode_ = 1;
-  }
-
-  ROS_INFO_STREAM("initialize resolution type: " << (dis_resolution_mode_?"1cm":"0.5cm") << ", intensity mode: " << intensity_mode_);
 
   private_nh.param("model", model, std::string("RS16"));
   if (model == "RS16")
   {
     numOfLasers = 16;
-    R1_ = 0.04638;
-    R2_ = 0.010875;
   }
   else if (model == "RS32")
   {
     numOfLasers = 32;
     TEMPERATURE_RANGE = 50;
-    R1_ = 0.04583;
-    R2_ = 0.010875;
   }
 
   intensityFactor = 51;
-
-  //return mode default
-  return_mode_ = 1;
+  intensity_mode_ = 1;
 
   /// 读参数文件 2017-02-27
   FILE* f_inten = fopen(curvesPath.c_str(), "r");
@@ -230,6 +175,10 @@ void RawData::loadConfigFile(ros::NodeHandle node, ros::NodeHandle private_nh)
             &c[27], &c[28], &c[29], &c[30], &c[31], &c[32], &c[33], &c[34], &c[35], &c[36], &c[37], &c[38], &c[39],
             &c[40], &c[41], &c[42], &c[43], &c[44], &c[45], &c[46], &c[47], &c[48], &c[49], &c[50]);
       }
+      //                if (c[1] < 100 || c[1] > 3000)
+      //                {
+      //                    tempMode = 0;
+      //                }
       for (loopl = 0; loopl < TEMPERATURE_RANGE + 1; loopl++)
       {
         g_ChannelNum[loopm][loopl] = c[tempMode * loopl];
@@ -249,10 +198,6 @@ void RawData::loadConfigFile(ros::NodeHandle node, ros::NodeHandle private_nh)
     if (!f_curvesRate)
     {
       ROS_ERROR_STREAM(curvesRatePath << " does not exist");
-      for (int i = 0; i < 32; ++i)
-      {
-        CurvesRate[i] = 1.0;
-      }
     }
     else
     {
@@ -278,53 +223,29 @@ void RawData::processDifop(const rslidar_msgs::rslidarPacket::ConstPtr& difop_ms
 {
   // std::cout << "Enter difop callback!" << std::endl;
   const uint8_t* data = &difop_msg->data[0];
-  bool is_support_dual_return = false;
 
-  // check header
-  if (data[0] != 0xa5 || data[1] != 0xff || data[2] != 0x00 || data[3] != 0x5a)
-  {
-    return;
-  }
-
-  //return mode check
-  if ((data[45] == 0x08 && data[46] == 0x02 && data[47] >= 0x09) || (data[45] > 0x08) || (data[45] == 0x08 && data[46] > 0x02))
-  {
-    is_support_dual_return = true;
-    if (data[300] == 0x01 || data[300] == 0x02)
-    {
-      return_mode_ = data[300];
-    }
-    else
-    {
-      return_mode_ = 0;
-    }
-  }
-  else
-  {
-    is_support_dual_return = false;
-    return_mode_ = 1;
-  }
-  //
   if (!this->is_init_top_fw_)
   {
     if ((data[41] == 0x00 && data[42] == 0x00 && data[43] == 0x00) ||
         (data[41] == 0xff && data[42] == 0xff && data[43] == 0xff) ||
-        (data[41] == 0x55 && data[42] == 0xaa && data[43] == 0x5a) ||
-        (data[41] == 0xe9 && data[42] == 0x01 && data[43] == 0x00))
+        (data[41] == 0x55 && data[42] == 0xaa && data[43] == 0x5a))
     {
-      dis_resolution_mode_ = 1;  // 1cm resolution
-      //std::cout << "The distance resolution is 1cm" << std::endl;
+      dis_resolution_mode = 1;  // 1cm resolution
+      std::cout << "The distance resolution is 1cm" << std::endl;
     }
     else
     {
-      dis_resolution_mode_ = 0;  // 0.5cm resolution
-      //std::cout << "The distance resolution is 0.5cm" << std::endl;
+      dis_resolution_mode = 0;  // 0.5cm resolution
+      std::cout << "The distance resolution is 0.5cm" << std::endl;
     }
     this->is_init_top_fw_ = true;
   }
 
   if (!this->is_init_curve_)
   {
+    // check header
+    if (data[0] == 0xa5 && data[1] == 0xff && data[2] == 0x00 && data[3] == 0x5a)
+    {
       bool curve_flag = true;
       // check difop reigon has beed flashed the right data
       if ((data[50] == 0x00 || data[50] == 0xff) && (data[51] == 0x00 || data[51] == 0xff) &&
@@ -378,9 +299,8 @@ void RawData::processDifop(const rslidar_msgs::rslidarPacket::ConstPtr& difop_ms
           aIntensityCal[6][loopn] = (bit1 * 256 + bit2) * 0.001;
         }
         this->is_init_curve_ = true;
-        ROS_INFO_STREAM("curves data is wrote in difop packet!");
-        //std::cout << "this->is_init_curve_ = "
-        //          << "true!" << std::endl;
+        std::cout << "this->is_init_curve_ = "
+                  << "true!" << std::endl;
         Curvesis_new = true;
       }
 
@@ -393,24 +313,20 @@ void RawData::processDifop(const rslidar_msgs::rslidarPacket::ConstPtr& difop_ms
       if ((data[291] == 0x00) || (data[291] == 0xff) || (data[291] == 0xa1))
       {
         intensity_mode_ = 1;  // mode for the top firmware lower than T6R23V8(16) or T9R23V6(32)
-        // std::cout << "intensity mode is 1" << std::endl;
+                              // std::cout << "intensity mode is 1" << std::endl;
       }
       else if (data[291] == 0xb1)
       {
         intensity_mode_ = 2;  // mode for the top firmware higher than T6R23V8(16) or T9R23V6(32)
-        // std::cout << "intensity mode is 2" << std::endl;
+                              // std::cout << "intensity mode is 2" << std::endl;
       }
-      else if (data[291] == 0xc1)
-      {
-        intensity_mode_ = 3;  // mode for the top firmware higher than T6R23V9
-        // std::cout << "intensity mode is 2" << std::endl;
-      }
+    }
   }
 
   if (!this->is_init_angle_)
   {
     // check header
-//    if (data[0] == 0xa5 && data[1] == 0xff && data[2] == 0x00 && data[3] == 0x5a)
+    if (data[0] == 0xa5 && data[1] == 0xff && data[2] == 0x00 && data[3] == 0x5a)
     {
       bool angle_flag = true;
       // check difop reigon has beed flashed the right data
@@ -443,34 +359,9 @@ void RawData::processDifop(const rslidar_msgs::rslidarPacket::ConstPtr& difop_ms
           HORI_ANGLE[loopn] = 0;
         }
         this->is_init_angle_ = true;
-        ROS_INFO_STREAM("angle data is wrote in difop packet!");
-        //std::cout << "this->is_init_angle_ = "
-        //          << "true!" << std::endl;
+        std::cout << "this->is_init_angle_ = "
+                  << "true!" << std::endl;
       }
-    }
-  }
-
-  if (!info_print_flag_)
-  {
-    info_print_flag_ = true;
-
-    //print info
-    float prin_dis;
-    if (dis_resolution_mode_ == 0)
-      prin_dis = 0.5;
-    else
-      prin_dis = 1;
-    ROS_INFO_STREAM("distance resolution is: " << prin_dis << "cm, intensity mode is: Mode" << intensity_mode_);
-    if (is_support_dual_return == false)
-      ROS_INFO_STREAM("lidar only support single return wave!");
-    else
-    {
-      if (return_mode_ == 0)
-        ROS_INFO_STREAM("lidar support dual return wave, the current mode is: dual return wave mode!");
-      else if (return_mode_ == 1)
-        ROS_INFO_STREAM("lidar support dual return wave, the current mode is: strongest return wave mode!");
-      else if (return_mode_ == 2)
-        ROS_INFO_STREAM("lidar support dual return wave, the current mode is: last return wave mode!");
     }
   }
   // std::cout << "DIFOP data! +++++++++++++" << std::endl;
@@ -512,132 +403,127 @@ int RawData::correctAzimuth(float azimuth_f, int passageway)
 //校准反射强度值
 float RawData::calibrateIntensity(float intensity, int calIdx, int distance)
 {
-  if (intensity_mode_ == 3)
+  int algDist;
+  int sDist;
+  int uplimitDist;
+  float realPwr;
+  float refPwr;
+  float tempInten;
+  float distance_f;
+  float endOfSection1, endOfSection2;
+
+  int temp = estimateTemperature(temper);
+
+  realPwr = std::max((float)(intensity / (1 + (temp - TEMPERATURE_MIN) / 24.0f)), 1.0f);
+  // realPwr = intensity;
+
+  if (intensity_mode_ == 1)
   {
-    return intensity;
+    // transform the one byte intensity value to two byte
+    if ((int)realPwr < 126)
+      realPwr = realPwr * 4.0f;
+    else if ((int)realPwr >= 126 && (int)realPwr < 226)
+      realPwr = (realPwr - 125.0f) * 16.0f + 500.0f;
+    else
+      realPwr = (realPwr - 225.0f) * 256.0f + 2100.0f;
+  }
+  else if (intensity_mode_ == 2)
+  {
+    // the caculation for the firmware after T6R23V8(16) and T9R23V6(32)
+    if ((int)realPwr < 64)
+      realPwr = realPwr;
+    else if ((int)realPwr >= 64 && (int)realPwr < 176)
+      realPwr = (realPwr - 64.0f) * 4.0f + 64.0f;
+    else
+      realPwr = (realPwr - 176.0f) * 16.0f + 512.0f;
   }
   else
   {
-    int algDist;
-    int sDist;
-//    int uplimitDist;
-    float realPwr;
-    float refPwr;
-    float tempInten;
-    float distance_f;
-    float endOfSection1, endOfSection2;
-    int temp = estimateTemperature(temper);
-
-    realPwr = std::max((float)(intensity / (1 + (temp - TEMPERATURE_MIN) / 24.0f)), 1.0f);
-
-    if (intensity_mode_ == 1)
-    {
-      // transform the one byte intensity value to two byte
-      if ((int)realPwr < 126)
-        realPwr = realPwr * 4.0f;
-      else if ((int)realPwr >= 126 && (int)realPwr < 226)
-        realPwr = (realPwr - 125.0f) * 16.0f + 500.0f;
-      else
-        realPwr = (realPwr - 225.0f) * 256.0f + 2100.0f;
-    }
-    else if (intensity_mode_ == 2)
-    {
-      // the caculation for the firmware after T6R23V8(16) and T9R23V6(32)
-      if ((int)realPwr < 64)
-        realPwr = realPwr;
-      else if ((int)realPwr >= 64 && (int)realPwr < 176)
-        realPwr = (realPwr - 64.0f) * 4.0f + 64.0f;
-      else
-        realPwr = (realPwr - 176.0f) * 16.0f + 512.0f;
-    }
-    else
-    {
-      std::cout << "The intensity mode is not right" << std::endl;
-    }
-
-    int indexTemper = estimateTemperature(temper) - TEMPERATURE_MIN;
-
-    // limit sDist
-    sDist = (distance > g_ChannelNum[calIdx][indexTemper]) ? distance : g_ChannelNum[calIdx][indexTemper];
-
-    // minus the static offset (this data is For the intensity cal useage only)
-    algDist = sDist - g_ChannelNum[calIdx][indexTemper];
-    if (dis_resolution_mode_ == 0)
-    {
-      distance_f = (float)algDist * DISTANCE_RESOLUTION_NEW;
-    }
-    else
-    {
-      distance_f = (float)algDist * DISTANCE_RESOLUTION;
-    }
-    distance_f = (distance_f > this->max_distance_) ? this->max_distance_ : distance_f;
-
-    // calculate intensity ref curves
-    float refPwr_temp = 0.0f;
-    int order = 3;
-    endOfSection1 = 5.0f;
-    endOfSection2 = 40.0;
-
-    if (intensity_mode_ == 1)
-    {
-      if (distance_f <= endOfSection1)
-      {
-        refPwr_temp = aIntensityCal[0][calIdx] * exp(aIntensityCal[1][calIdx] - aIntensityCal[2][calIdx] * distance_f) +
-                      aIntensityCal[3][calIdx];
-        //   printf("a-calIdx=%d,distance_f=%f,refPwr=%f\n",calIdx,distance_f,refPwr_temp);
-      }
-      else
-      {
-        for (int i = 0; i < order; i++)
-        {
-          refPwr_temp += aIntensityCal[i + 4][calIdx] * (pow(distance_f, order - 1 - i));
-        }
-        // printf("b-calIdx=%d,distance_f=%f,refPwr=%f\n",calIdx,distance_f,refPwr_temp);
-      }
-    }
-    else if (intensity_mode_ == 2)
-    {
-      if (distance_f <= endOfSection1)
-      {
-        refPwr_temp = aIntensityCal[0][calIdx] * exp(aIntensityCal[1][calIdx] - aIntensityCal[2][calIdx] * distance_f) +
-                      aIntensityCal[3][calIdx];
-        //   printf("a-calIdx=%d,distance_f=%f,refPwr=%f\n",calIdx,distance_f,refPwr_temp);
-      }
-      else if (distance_f > endOfSection1 && distance_f <= endOfSection2)
-      {
-        for (int i = 0; i < order; i++)
-        {
-          refPwr_temp += aIntensityCal[i + 4][calIdx] * (pow(distance_f, order - 1 - i));
-        }
-        // printf("b-calIdx=%d,distance_f=%f,refPwr=%f\n",calIdx,distance_f,refPwr_temp);
-      }
-      else
-      {
-        float refPwr_temp0 = 0.0f;
-        float refPwr_temp1 = 0.0f;
-        for (int i = 0; i < order; i++)
-        {
-          refPwr_temp0 += aIntensityCal[i + 4][calIdx] * (pow(40.0f, order - 1 - i));
-          refPwr_temp1 += aIntensityCal[i + 4][calIdx] * (pow(39.0f, order - 1 - i));
-        }
-        refPwr_temp = 0.3f * (refPwr_temp0 - refPwr_temp1) * distance_f + refPwr_temp0;
-      }
-    }
-    else
-    {
-      std::cout << "The intensity mode is not right" << std::endl;
-    }
-
-    refPwr = std::max(std::min(refPwr_temp, 500.0f), 4.0f);
-
-    tempInten = (intensityFactor * refPwr) / realPwr;
-    if (numOfLasers == 32)
-    {
-      tempInten = tempInten * CurvesRate[calIdx];
-    }
-    tempInten = (int)tempInten > 255 ? 255.0f : tempInten;
-    return tempInten;
+    std::cout << "The intensity mode is not right" << std::endl;
   }
+
+  int indexTemper = estimateTemperature(temper) - TEMPERATURE_MIN;
+  uplimitDist = g_ChannelNum[calIdx][indexTemper] + DISTANCE_MAX_UNITS;
+  // limit sDist
+  sDist = (distance > g_ChannelNum[calIdx][indexTemper]) ? distance : g_ChannelNum[calIdx][indexTemper];
+  sDist = (sDist < uplimitDist) ? sDist : uplimitDist;
+  // minus the static offset (this data is For the intensity cal useage only)
+  algDist = sDist - g_ChannelNum[calIdx][indexTemper];
+
+  // calculate intensity ref curves
+  float refPwr_temp = 0.0f;
+  int order = 3;
+  endOfSection1 = 5.0f;
+  endOfSection2 = 40.0;
+
+  if (dis_resolution_mode == 0)
+  {
+    distance_f = (float)algDist * DISTANCE_RESOLUTION_NEW;
+  }
+  else
+  {
+    distance_f = (float)algDist * DISTANCE_RESOLUTION;
+  }
+
+  if (intensity_mode_ == 1)
+  {
+    if (distance_f <= endOfSection1)
+    {
+      refPwr_temp = aIntensityCal[0][calIdx] * exp(aIntensityCal[1][calIdx] - aIntensityCal[2][calIdx] * distance_f) +
+                    aIntensityCal[3][calIdx];
+      //   printf("a-calIdx=%d,distance_f=%f,refPwr=%f\n",calIdx,distance_f,refPwr_temp);
+    }
+    else
+    {
+      for (int i = 0; i < order; i++)
+      {
+        refPwr_temp += aIntensityCal[i + 4][calIdx] * (pow(distance_f, order - 1 - i));
+      }
+      // printf("b-calIdx=%d,distance_f=%f,refPwr=%f\n",calIdx,distance_f,refPwr_temp);
+    }
+  }
+  else if (intensity_mode_ == 2)
+  {
+    if (distance_f <= endOfSection1)
+    {
+      refPwr_temp = aIntensityCal[0][calIdx] * exp(aIntensityCal[1][calIdx] - aIntensityCal[2][calIdx] * distance_f) +
+                    aIntensityCal[3][calIdx];
+      //   printf("a-calIdx=%d,distance_f=%f,refPwr=%f\n",calIdx,distance_f,refPwr_temp);
+    }
+    else if (distance_f > endOfSection1 && distance_f <= endOfSection2)
+    {
+      for (int i = 0; i < order; i++)
+      {
+        refPwr_temp += aIntensityCal[i + 4][calIdx] * (pow(distance_f, order - 1 - i));
+      }
+      // printf("b-calIdx=%d,distance_f=%f,refPwr=%f\n",calIdx,distance_f,refPwr_temp);
+    }
+    else
+    {
+      float refPwr_temp0 = 0.0f;
+      float refPwr_temp1 = 0.0f;
+      for (int i = 0; i < order; i++)
+      {
+        refPwr_temp0 += aIntensityCal[i + 4][calIdx] * (pow(40.0f, order - 1 - i));
+        refPwr_temp1 += aIntensityCal[i + 4][calIdx] * (pow(39.0f, order - 1 - i));
+      }
+      refPwr_temp = 0.3f * (refPwr_temp0 - refPwr_temp1) * distance_f + refPwr_temp0;
+    }
+  }
+  else
+  {
+    std::cout << "The intensity mode is not right" << std::endl;
+  }
+
+  refPwr = std::max(std::min(refPwr_temp, 500.0f), 4.0f);
+
+  tempInten = (intensityFactor * refPwr) / realPwr;
+  if (numOfLasers == 32)
+  {
+    tempInten = tempInten * CurvesRate[calIdx];
+  }
+  tempInten = (int)tempInten > 255 ? 255.0f : tempInten;
+  return tempInten;
 }
 
 //------------------------------------------------------------
@@ -738,12 +624,6 @@ int RawData::estimateTemperature(float Temper)
  */
 void RawData::unpack(const rslidar_msgs::rslidarPacket& pkt, pcl::PointCloud<pcl::PointXYZI>::Ptr pointcloud)
 {
-  //check pkt header
-  if (pkt.data[0] != 0x55 || pkt.data[1] != 0xAA || pkt.data[2] != 0x05 || pkt.data[3] != 0x0A)
-  {
-    return;
-  }
-
   if (numOfLasers == 32)
   {
     unpack_RS32(pkt, pointcloud);
@@ -784,6 +664,12 @@ void RawData::unpack(const rslidar_msgs::rslidarPacket& pkt, pcl::PointCloud<pcl
       azi1 = 256 * raw->blocks[block + 1].rotation_1 + raw->blocks[block + 1].rotation_2;
       azi2 = 256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2;
       azimuth_diff = (float)((36000 + azi1 - azi2) % 36000);
+
+      // Ingnore the block if the azimuth change abnormal
+      if (azimuth_diff <= 0.0 || azimuth_diff > 75.0)
+      {
+        continue;
+      }
     }
     else
     {
@@ -791,21 +677,20 @@ void RawData::unpack(const rslidar_msgs::rslidarPacket& pkt, pcl::PointCloud<pcl
       azi1 = 256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2;
       azi2 = 256 * raw->blocks[block - 1].rotation_1 + raw->blocks[block - 1].rotation_2;
       azimuth_diff = (float)((36000 + azi1 - azi2) % 36000);
+
+      // Ingnore the block if the azimuth change abnormal
+      if (azimuth_diff <= 0.0 || azimuth_diff > 75.0)
+      {
+        continue;
+      }
     }
 
     for (int firing = 0, k = 0; firing < RS16_FIRINGS_PER_BLOCK; firing++)  // 2
     {
       for (int dsr = 0; dsr < RS16_SCANS_PER_FIRING; dsr++, k += RAW_SCAN_SIZE)  // 16   3
       {
-        if (0 == return_mode_)
-        {
-          azimuth_corrected_f = azimuth + (azimuth_diff * (dsr * RS16_DSR_TOFFSET)) / RS16_FIRING_TOFFSET;
-        }
-        else
-        {
-          azimuth_corrected_f = azimuth + (azimuth_diff * ((dsr * RS16_DSR_TOFFSET) + (firing * RS16_FIRING_TOFFSET)) /
-                                           RS16_BLOCK_TDURATION);
-        }
+        azimuth_corrected_f = azimuth + (azimuth_diff * ((dsr * RS16_DSR_TOFFSET) + (firing * RS16_FIRING_TOFFSET)) /
+                                         RS16_BLOCK_TDURATION);
         azimuth_corrected = ((int)round(azimuth_corrected_f)) % 36000;  // convert to integral value...
 
         union two_bytes tmp;
@@ -821,7 +706,7 @@ void RawData::unpack(const rslidar_msgs::rslidarPacket& pkt, pcl::PointCloud<pcl
           intensity = calibrateIntensity_old(intensity, dsr, distance);
 
         float distance2 = pixelToDistance(distance, dsr);
-        if (dis_resolution_mode_ == 0)  // distance resolution is 0.5cm
+        if (dis_resolution_mode = 0)  // distance resolution is 0.5cm
         {
           distance2 = distance2 * DISTANCE_RESOLUTION_NEW;
         }
@@ -831,13 +716,10 @@ void RawData::unpack(const rslidar_msgs::rslidarPacket& pkt, pcl::PointCloud<pcl
         }
 
         float arg_horiz = (float)azimuth_corrected / 18000.0f * M_PI;
-        float arg_horiz_orginal = arg_horiz;
         float arg_vert = VERT_ANGLE[dsr];
         pcl::PointXYZI point;
 
-        if (distance2 > max_distance_ || distance2 < min_distance_ ||
-            (angle_flag_ && (arg_horiz < start_angle_ || arg_horiz > end_angle_)) ||
-            (!angle_flag_ && (arg_horiz > end_angle_ && arg_horiz < start_angle_)))  // invalid distance
+        if (distance2 > DISTANCE_MAX || distance2 < DISTANCE_MIN)  // invalid data
         {
           point.x = NAN;
           point.y = NAN;
@@ -852,10 +734,9 @@ void RawData::unpack(const rslidar_msgs::rslidarPacket& pkt, pcl::PointCloud<pcl
           // point.y = dis * cos(arg_vert) * cos(arg_horiz);
 
           // If you want to fix the rslidar X aixs to the front side of the cable, please use the two line below
-
-          point.x = distance2 * cos(arg_vert) * cos(arg_horiz) + R1_ * cos(arg_horiz_orginal);
-          point.y = -distance2 * cos(arg_vert) * sin(arg_horiz) - R1_ * sin(arg_horiz_orginal);
-          point.z = distance2 * sin(arg_vert) - R2_;
+          point.y = -distance2 * cos(arg_vert) * sin(arg_horiz);
+          point.x = distance2 * cos(arg_vert) * cos(arg_horiz);
+          point.z = distance2 * sin(arg_vert);
           point.intensity = intensity;
           pointcloud->at(2 * this->block_num + firing, dsr) = point;
         }
@@ -873,7 +754,6 @@ void RawData::unpack_RS32(const rslidar_msgs::rslidarPacket& pkt, pcl::PointClou
   int azimuth_corrected;
 
   const raw_packet_t* raw = (const raw_packet_t*)&pkt.data[42];
-
 
   for (int block = 0; block < BLOCKS_PER_PACKET; block++, this->block_num++)  // 1 packet:12 data blocks
   {
@@ -896,36 +776,34 @@ void RawData::unpack_RS32(const rslidar_msgs::rslidarPacket& pkt, pcl::PointClou
 
     azimuth = (float)(256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2);
 
-    int azi1, azi2;
-    if (0 == return_mode_)
-    {//dual return mode
-      if (block < (BLOCKS_PER_PACKET - 2))  // 12
+    if (block < (BLOCKS_PER_PACKET - 1))  // 12
+    {
+      int azi1, azi2;
+      azi1 = 256 * raw->blocks[block + 1].rotation_1 + raw->blocks[block + 1].rotation_2;
+      azi2 = 256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2;
+      azimuth_diff = (float)((36000 + azi1 - azi2) % 36000);
+
+      // Ingnore the block if the azimuth change abnormal
+      if (azimuth_diff <= 0.0 || azimuth_diff > 25.0)
       {
-        azi1 = 256 * raw->blocks[block+2].rotation_1 + raw->blocks[block+2].rotation_2;
-        azi2 = 256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2;
-      }
-      else
-      {
-        azi1 = 256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2;
-        azi2 = 256 * raw->blocks[block - 2].rotation_1 + raw->blocks[block - 2].rotation_2;
+        continue;
       }
     }
     else
     {
-      if (block < (BLOCKS_PER_PACKET - 1))  // 12
+      int azi1, azi2;
+      azi1 = 256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2;
+      azi2 = 256 * raw->blocks[block - 1].rotation_1 + raw->blocks[block - 1].rotation_2;
+      azimuth_diff = (float)((36000 + azi1 - azi2) % 36000);
+
+      // Ingnore the block if the azimuth change abnormal
+      if (azimuth_diff <= 0.0 || azimuth_diff > 25.0)
       {
-        azi1 = 256 * raw->blocks[block + 1].rotation_1 + raw->blocks[block + 1].rotation_2;
-        azi2 = 256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2;
-      }
-      else
-      {
-        azi1 = 256 * raw->blocks[block].rotation_1 + raw->blocks[block].rotation_2;
-        azi2 = 256 * raw->blocks[block - 1].rotation_1 + raw->blocks[block - 1].rotation_2;
+        continue;
       }
     }
-    azimuth_diff = (float)((36000 + azi1 - azi2) % 36000);
 
-    if (dis_resolution_mode_ == 0)  // distance resolution is 0.5cm and delete the AB packet mechanism
+    if (dis_resolution_mode == 0)  // distance resolution is 0.5cm and delete the AB packet mechanism
     {
       for (int dsr = 0, k = 0; dsr < RS32_SCANS_PER_FIRING * RS32_FIRINGS_PER_BLOCK; dsr++, k += RAW_SCAN_SIZE)  // 16 3
       {
@@ -953,14 +831,11 @@ void RawData::unpack_RS32(const rslidar_msgs::rslidarPacket& pkt, pcl::PointClou
         float distance2 = pixelToDistance(distance, dsr);
         distance2 = distance2 * DISTANCE_RESOLUTION_NEW;
 
-        float arg_horiz_orginal = (float)azimuth_corrected_f / 18000.0f * M_PI;
         float arg_horiz = (float)azimuth_corrected / 18000.0f * M_PI;
         float arg_vert = VERT_ANGLE[dsr];
         pcl::PointXYZI point;
 
-        if (distance2 > max_distance_ || distance2 < min_distance_ ||
-            (angle_flag_ && (arg_horiz < start_angle_ || arg_horiz > end_angle_)) ||
-            (!angle_flag_ && (arg_horiz > end_angle_ && arg_horiz < start_angle_)))  // invalid distance
+        if (distance2 > DISTANCE_MAX || distance2 < DISTANCE_MIN)  // invalid data
         {
           point.x = NAN;
           point.y = NAN;
@@ -975,9 +850,9 @@ void RawData::unpack_RS32(const rslidar_msgs::rslidarPacket& pkt, pcl::PointClou
           // point.y = dis * cos(arg_vert) * cos(arg_horiz);
 
           // If you want to fix the rslidar X aixs to the front side of the cable, please use the two line below
-          point.x = distance2 * cos(arg_vert) * cos(arg_horiz) + R1_ * cos(arg_horiz_orginal);
-          point.y = -distance2 * cos(arg_vert) * sin(arg_horiz) - R1_ * sin(arg_horiz_orginal);
-          point.z = distance2 * sin(arg_vert) - R2_;
+          point.y = -distance2 * cos(arg_vert) * sin(arg_horiz);
+          point.x = distance2 * cos(arg_vert) * cos(arg_horiz);
+          point.z = distance2 * sin(arg_vert);
           point.intensity = intensity;
           pointcloud->at(this->block_num, dsr) = point;
         }
@@ -1033,14 +908,11 @@ void RawData::unpack_RS32(const rslidar_msgs::rslidarPacket& pkt, pcl::PointClou
         float distance2 = pixelToDistance(distance, dsr);
         distance2 = distance2 * DISTANCE_RESOLUTION;
 
-        float arg_horiz_orginal = (float)azimuth_corrected_f / 18000.0f * M_PI;
         float arg_horiz = (float)azimuth_corrected / 18000.0f * M_PI;
         float arg_vert = VERT_ANGLE[dsr];
         pcl::PointXYZI point;
 
-        if (distance2 > max_distance_ || distance2 < min_distance_ ||
-            (angle_flag_ && (arg_horiz < start_angle_ || arg_horiz > end_angle_)) ||
-            (!angle_flag_ && (arg_horiz > end_angle_ && arg_horiz < start_angle_)))  // invalid distance
+        if (distance2 > DISTANCE_MAX || distance2 < DISTANCE_MIN)  // invalid data
         {
           point.x = NAN;
           point.y = NAN;
@@ -1055,9 +927,9 @@ void RawData::unpack_RS32(const rslidar_msgs::rslidarPacket& pkt, pcl::PointClou
           // point.y = dis * cos(arg_vert) * cos(arg_horiz);
 
           // If you want to fix the rslidar X aixs to the front side of the cable, please use the two line below
-          point.x = distance2 * cos(arg_vert) * cos(arg_horiz) + R1_ * cos(arg_horiz_orginal);
-          point.y = -distance2 * cos(arg_vert) * sin(arg_horiz) - R1_ * sin(arg_horiz_orginal);
-          point.z = distance2 * sin(arg_vert) - R2_;
+          point.y = -distance2 * cos(arg_vert) * sin(arg_horiz);
+          point.x = distance2 * cos(arg_vert) * cos(arg_horiz);
+          point.z = distance2 * sin(arg_vert);
           point.intensity = intensity;
           pointcloud->at(this->block_num, dsr) = point;
         }

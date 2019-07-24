@@ -165,18 +165,7 @@ public:
   int block_num = 0;
   int intensity_mode_;
   int intensityFactor;
-
-private:
-  float R1_;
-  float R2_;
-  bool angle_flag_;
-  float start_angle_;
-  float end_angle_;
-  float max_distance_;
-  float min_distance_;
-  int dis_resolution_mode_;
-  int return_mode_;
-  bool info_print_flag_;
+  int dis_resolution_mode = 0;
 };
 
 float VERT_ANGLE[32];

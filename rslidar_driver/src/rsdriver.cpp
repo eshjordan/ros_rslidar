@@ -17,12 +17,8 @@
 
 namespace rslidar_driver
 {
-  static const unsigned int POINTS_ONE_CHANNEL_PER_SECOND = 20000;
-  static const unsigned int BLOCKS_ONE_CHANNEL_PER_PKT = 12;
-
 rslidarDriver::rslidarDriver(ros::NodeHandle node, ros::NodeHandle private_nh)
 {
-  skip_num_ = 0;
   // use private node handle to get parameters
   private_nh.param("frame_id", config_.frame_id, std::string("rslidar"));
 
@@ -127,24 +123,9 @@ rslidarDriver::rslidarDriver(ros::NodeHandle node, ros::NodeHandle private_nh)
   }
 
   // raw packet output topic
-  std::string output_packets_topic;
-  private_nh.param("output_packets_topic", output_packets_topic, std::string("rslidar_packets"));
-  msop_output_ = node.advertise<rslidar_msgs::rslidarScan>(output_packets_topic, 10);
-
-  std::string output_difop_topic;
-  private_nh.param("output_difop_topic", output_difop_topic, std::string("rslidar_packets_difop"));
-  difop_output_ = node.advertise<rslidar_msgs::rslidarPacket>(output_difop_topic, 10);
-
+  msop_output_ = node.advertise<rslidar_msgs::rslidarScan>("rslidar_packets", 10);
+  difop_output_ = node.advertise<rslidar_msgs::rslidarPacket>("rslidar_packets_difop", 10);
   difop_thread_ = boost::shared_ptr<boost::thread>(new boost::thread(boost::bind(&rslidarDriver::difopPoll, this)));
-
-  private_nh.param("time_synchronization", time_synchronization_, false);
-
-  if (time_synchronization_)
-  {
-    output_sync_ = node.advertise<sensor_msgs::TimeReference>("sync_header", 1);
-    skip_num_sub_ = node.subscribe<std_msgs::Int32>("skippackets_num", 1, &rslidarDriver::skipNumCallback,
-                                                    (rslidarDriver*)this, ros::TransportHints().tcpNoDelay(true));
-  }
 }
 
 /** poll the device
@@ -152,7 +133,8 @@ rslidarDriver::rslidarDriver(ros::NodeHandle node, ros::NodeHandle private_nh)
  *  @returns true unless end of file reached
  */
 bool rslidarDriver::poll(void)
-{  // Allocate a new shared pointer for zero-copy sharing with other nodelets.
+{
+  // Allocate a new shared pointer for zero-copy sharing with other nodelets.
   rslidar_msgs::rslidarScanPtr scan(new rslidar_msgs::rslidarScan);
 
   // Since the rslidar delivers data at a very high rate, keep
@@ -195,39 +177,7 @@ bool rslidarDriver::poll(void)
   }
   else  // standard behaviour
   {
-    if (difop_input_->getUpdateFlag())
-    {
-      int packets_rate = ceil(POINTS_ONE_CHANNEL_PER_SECOND/BLOCKS_ONE_CHANNEL_PER_PKT);
-      int mode = difop_input_->getReturnMode();
-      if (config_.model == "RS16" && (mode == 1))
-      {
-        packets_rate = ceil(packets_rate/2);
-      }
-      else if (config_.model == "RS32" && (mode == 0))
-      {
-        packets_rate = packets_rate*2;
-      }
-      config_.rpm = difop_input_->getRpm();
-      config_.npackets = ceil(packets_rate*60/config_.rpm);
-
-      difop_input_->clearUpdateFlag();
-    }
     scan->packets.resize(config_.npackets);
-    // use in standard behaviour only
-    while (skip_num_)
-    {
-      while (true)
-      {
-        // keep reading until full packet received
-        int rc = msop_input_->getPacket(&scan->packets[0], config_.time_offset);
-        if (rc == 0)
-          break;  // got a full packet?
-        if (rc < 0)
-          return false;  // end of file reached?
-      }
-      --skip_num_;
-    }
-
     for (int i = 0; i < config_.npackets; ++i)
     {
       while (true)
@@ -239,28 +189,6 @@ bool rslidarDriver::poll(void)
         if (rc < 0)
           return false;  // end of file reached?
       }
-    }
-
-    if (time_synchronization_)
-    {
-      sensor_msgs::TimeReference sync_header;
-      // it is already the msop msg
-      // if (pkt->data[0] == 0x55 && pkt->data[1] == 0xaa && pkt->data[2] == 0x05 && pkt->data[3] == 0x0a)
-      // use the first packets
-      rslidar_msgs::rslidarPacket pkt = scan->packets[0];
-      struct tm stm;
-      memset(&stm, 0, sizeof(stm));
-      stm.tm_year = (int)pkt.data[20] + 100;
-      stm.tm_mon  = (int)pkt.data[21] - 1;
-      stm.tm_mday = (int)pkt.data[22];
-      stm.tm_hour = (int)pkt.data[23];
-      stm.tm_min  = (int)pkt.data[24];
-      stm.tm_sec  = (int)pkt.data[25];
-      double stamp_double = mktime(&stm) + 0.001 * (256 * pkt.data[26] + pkt.data[27]) +
-                            0.000001 * (256 * pkt.data[28] + pkt.data[29]);
-      sync_header.header.stamp = ros::Time(stamp_double);
-
-      output_sync_.publish(sync_header);
     }
   }
 
@@ -304,11 +232,4 @@ void rslidarDriver::callback(rslidar_driver::rslidarNodeConfig& config, uint32_t
   ROS_INFO("Reconfigure Request");
   config_.time_offset = config.time_offset;
 }
-
-// add for time synchronization
-void rslidarDriver::skipNumCallback(const std_msgs::Int32::ConstPtr& skip_num)
-{
-  // std::cout << "Enter skipNumCallback: " << skip_num->data << std::endl;
-  skip_num_ = skip_num->data;
 }
-}  // namespace rslidar_driver

@@ -41,7 +41,7 @@ void CloudNodelet::onInit()
   conv_.reset(new Convert(getNodeHandle(), getPrivateNodeHandle()));
 }
 
-}  // namespace rslidar_pointcloud
+}  // namespace velodyne_pointcloud
 
 // Register this plugin with pluginlib.  Names must match nodelets.xml.
 //
