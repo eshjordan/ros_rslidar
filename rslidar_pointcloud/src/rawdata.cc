@@ -706,7 +706,7 @@ void RawData::unpack(const rslidar_msgs::rslidarPacket& pkt, pcl::PointCloud<pcl
           intensity = calibrateIntensity_old(intensity, dsr, distance);
 
         float distance2 = pixelToDistance(distance, dsr);
-        if (dis_resolution_mode = 0)  // distance resolution is 0.5cm
+        if (dis_resolution_mode == 0)  // distance resolution is 0.5cm
         {
           distance2 = distance2 * DISTANCE_RESOLUTION_NEW;
         }
@@ -730,8 +730,8 @@ void RawData::unpack(const rslidar_msgs::rslidarPacket& pkt, pcl::PointCloud<pcl
         else
         {
           // If you want to fix the rslidar Y aixs to the front side of the cable, please use the two line below
-          // point.x = dis * cos(arg_vert) * sin(arg_horiz);
-          // point.y = dis * cos(arg_vert) * cos(arg_horiz);
+          // point.x = distance2 * cos(arg_vert) * sin(arg_horiz);
+          // point.y = distance2 * cos(arg_vert) * cos(arg_horiz);
 
           // If you want to fix the rslidar X aixs to the front side of the cable, please use the two line below
           point.y = -distance2 * cos(arg_vert) * sin(arg_horiz);
