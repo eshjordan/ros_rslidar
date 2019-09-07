@@ -44,7 +44,7 @@ static const float ROTATION_RESOLUTION = 0.01f;   /**< degrees 旋转角分辨�
 static const uint16_t ROTATION_MAX_UNITS = 36000; /**< hundredths of degrees */
 
 static const float DISTANCE_MAX = 200.0f;            /**< meters */
-static const float DISTANCE_MIN = 0.2f;              /**< meters */
+static const float DISTANCE_MIN = 0.4f;              /**< meters */
 static const float DISTANCE_RESOLUTION = 0.01f;      /**< meters */
 static const float DISTANCE_RESOLUTION_NEW = 0.005f; /**< meters */
 static const float DISTANCE_MAX_UNITS = (DISTANCE_MAX / DISTANCE_RESOLUTION + 1.0f);
@@ -68,6 +68,7 @@ static const float RL32_FIRING_TOFFSET = 50.0f;   // [µs]
 
 static const int TEMPERATURE_MIN = 31;
 
+#define RS_TO_RADS(x) ((x) * (M_PI) / 180)
 /** \brief Raw rslidar data block.
  *
  *  Each block contains data from either the upper or lower laser
@@ -127,6 +128,8 @@ public:
 
   ~RawData()
   {
+    this->cos_lookup_table_.clear();
+    this->sin_lookup_table_.clear();
   }
 
   /*load the cablibrated files: angle, distance, intensity*/
@@ -165,22 +168,37 @@ public:
   int block_num = 0;
   int intensity_mode_;
   int intensityFactor;
-  int dis_resolution_mode = 0;
+
+private:
+  float Rx_;  // the optical center position in the lidar coordination in x direction
+  float Ry_;  // the optical center position in the lidar coordination in y direction, for now not used
+  float Rz_;  // the optical center position in the lidar coordination in z direction
+  bool angle_flag_;
+  int start_angle_;
+  int end_angle_;
+  float max_distance_;
+  float min_distance_;
+  int dis_resolution_mode_;
+  int return_mode_;
+  bool info_print_flag_;
+
+  /* cos/sin lookup table */
+  std::vector<double> cos_lookup_table_;
+  std::vector<double> sin_lookup_table_;
 };
 
-float VERT_ANGLE[32];
-float HORI_ANGLE[32];
-float aIntensityCal[7][32];
-float aIntensityCal_old[1600][32];
-bool Curvesis_new = true;
-int g_ChannelNum[32][51];
-float CurvesRate[32];
+static int VERT_ANGLE[32];
+static int HORI_ANGLE[32];
+static float aIntensityCal[7][32];
+static float aIntensityCal_old[1600][32];
+static bool Curvesis_new = true;
+static int g_ChannelNum[32][51];
+static float CurvesRate[32];
 
-float temper = 31.0;
-int tempPacketNum = 0;
-int numOfLasers = 16;
-int TEMPERATURE_RANGE = 40;
-
+static float temper = 31.0;
+static int tempPacketNum = 0;
+static int numOfLasers = 16;
+static int TEMPERATURE_RANGE = 40;
 }  // namespace rslidar_rawdata
 
 #endif  // __RAWDATA_H
